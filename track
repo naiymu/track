@@ -1,0 +1,1094 @@
+#!/usr/bin/env python3
+
+import argparse
+import curses
+import curses.panel
+import curses.textpad
+import os
+import subprocess
+import sys
+import time
+from random import randint
+
+from termcolor import colored
+from termcolor import cprint
+
+
+class Track(object):
+    # ====================== INSTANCE VARIABLES ======================
+
+    # The main window of curses
+    screen = None
+    # The index of the first directory from which printing starts
+    start = 0
+    # The index of the last directory at which printing stops
+    end = 0
+    # The position of the cursor
+    cursor = 0
+    # The number of lines at which the cursor stops if there are
+    # more directories to scroll down to
+    before_end = 8
+    # The number of lines at which the cursor stops if there are
+    # more directories to scroll up to
+    before_start = 8
+    # The holy directory
+    directory = os.getenv("HOLY_DIR", os.path.join(os.path.expanduser("~"), "Doujinshi"))
+    # Remove the os separator from end of string
+    directory = directory.rstrip(os.sep)
+    # The current directory
+    currentdir = os.getcwd()
+    # The subdirectories in the holy directory that are not hidden
+    files = []
+    # The search term stored
+    search_term = ""
+    # The separator for the status bar
+    separator = "\u2502"
+    # Row from which directories start being drawn
+    # Default is 0
+    starting_row = 0
+    # The number of rows on which directories cannot be drawn
+    # Default is 1, since one row is left for the status bar,
+    # if changing this, consider the value of starting row
+    # above as well or you might screw up the program
+    blank = 1
+    # Boolean value to store state of info window
+    showing_info = False
+    # Version of the program
+    version = '0.1.1'
+
+    # ================================================================
+
+    # This is the constructor. You do not call the main function here.
+    # Its better to call it with the curses.wrapper()
+    def __init__(self):
+        if not os.path.isdir(self.directory):
+            cprint(f'DIRECTORY "{self.directory}" DOES NOT EXIST.', 'red')
+            cprint(f"CONSIDER SETTING OR RECHECKING THE ENVIRONMENT VARIABLE \"$HOLY_DIR.\"", 'red')
+            exit(1)
+        # Parse arguments first
+        self.parse_arguments()
+
+        # If the directory is still not mounted
+        self.files = [f for f in os.listdir(self.directory)
+                      if os.path.isdir(os.path.join(self.directory, f)) and not
+                      f.startswith('.')]
+        # If the directory is empty or has no subdirectories
+        if not self.files:
+            cprint("NO SUBDIRECTORIES FOUND IN THE HOLY DIRECTORY.", 'red')
+            exit(1)
+        # Sort the holy subdirectories
+        self.files = sorted(self.files)
+
+    @staticmethod
+    def open_pic(file):
+        subprocess.Popen(["xdg-open", file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    @staticmethod
+    def init_curses():
+        # Remove the actual cursor
+        curses.curs_set(False)
+        # Start color in curses
+        curses.start_color()
+        curses.use_default_colors()
+        # 1 = Yellow, Color for CONTINUING
+        curses.init_pair(1, curses.COLOR_YELLOW, -1)
+        # 2 = Blue, Color for READ
+        curses.init_pair(2, curses.COLOR_BLUE, -1)
+        # 3 = Green, Color for UNREAD
+        curses.init_pair(3, curses.COLOR_GREEN, -1)
+        # 4 = Magenta, Color for FAVORITE
+        curses.init_pair(4, curses.COLOR_MAGENTA, -1)
+        # 5 = Default foreground, Color for STATUS BAR
+        curses.init_pair(5, -1, -1)
+
+    @staticmethod
+    def get_chapter(filename):
+        # Index of last space
+        # rfind - find from right
+        i_space = filename.rfind(" ")
+        # Get the string till before the space
+        filename = filename[:i_space]
+        chapter = ""
+        # Iterate through filename backwards
+        for c in reversed(filename):
+            # If the character is not a digit, break
+            if not c.isdigit():
+                break
+            chapter = c + chapter
+        if chapter == "":
+            return 1
+        return int(chapter)
+
+    @staticmethod
+    def get_pagenum(filename):
+        # Last space
+        space = filename.rfind(" ")
+        # Get part after space
+        filename = filename[space + 1:]
+        pagenum = ""
+        for c in filename:
+            if not c.isdigit():
+                break
+            pagenum += c
+        if pagenum == "":
+            return -1
+        return int(pagenum)
+
+    # If the current directory is a permitted subdirectory
+    def isindir(self):
+        return self.currentdir.startswith(os.path.join(self.directory, ""))
+
+    @staticmethod
+    def getname(subdir):
+        parts = subdir.split(os.sep)
+        return parts[len(parts) - 1]
+
+    def is_read(self, subdir):
+        read = ".READ"
+        # If the subdirectory is not the current directory
+        if not subdir == self.currentdir:
+            read = os.path.join(self.directory, subdir, ".READ")
+        return os.path.isfile(read)
+
+    def is_fav(self, subdir):
+        fav = ".FAV"
+        # If the subdirectory is not the current directory
+        if not subdir == self.currentdir:
+            fav = os.path.join(self.directory, subdir, ".FAV")
+        return os.path.isfile(fav)
+
+    def is_continuing(self, subdir):
+        cont = ".CONT"
+        # If the subdirectory is not the current directory
+        if not subdir == self.currentdir:
+            cont = os.path.join(self.directory, subdir, ".CONT")
+        return os.path.isfile(cont)
+
+    def get_cont_point(self, filename):
+        if not self.is_continuing(filename):
+            return
+        cont = os.path.join(self.directory, filename, ".CONT")
+        # Read the text from file as a list separated
+        # by new line character. This returns the first
+        # line and a blank line if the .CONT file is
+        # valid
+        with open(cont, 'r') as fileobj:
+            text = fileobj.read().split(os.linesep)
+        try:
+            # Extract the items in the text to
+            # variables cont_point and _
+            cont_point, _ = text
+        # If more or less items were in text
+        except ValueError:
+            # Return None
+            return None
+        return cont_point
+
+    def set_cont_point(self, chapter, page, filename):
+        try:
+            chapter = int(chapter)
+            page = int(page)
+        except ValueError:
+            return
+        path = os.path.join(self.directory, filename)
+        cont = os.path.join(path, ".CONT")
+        if chapter <= 0 and page <= 0:
+            if os.path.isfile(cont):
+                os.remove(cont)
+            return -1
+        # If page was negative or zero with non-zero
+        # chapter
+        if page <= 0:
+            return
+        # If the chapter given was zero but the page
+        # number was not, make the chapter = 1
+        if chapter <= 0:
+            chapter = 1
+        cont_point = ""
+        # Get the files in the dir
+        files = os.listdir(path)
+        for filename in files:
+            if self.get_chapter(filename) == chapter and \
+                    self.get_pagenum(filename) == page:
+                cont_point = filename
+                break
+        if cont_point == "":
+            return
+        with open(cont, 'w') as fileobj:
+            fileobj.write(f"{cont_point}\n")
+        return cont_point
+
+    def toggle_read(self, subdir):
+        read = ".READ"
+        if not subdir == self.currentdir:
+            read = os.path.join(self.directory, subdir, ".READ")
+        # If the directory is already read
+        if self.is_read(subdir):
+            # Remove the .READ file
+            os.remove(read)
+            return
+        # Create an empty file .READ
+        open(read, 'a').close()
+
+    def toggle_fav(self, subdir):
+        fav = ".FAV"
+        if not subdir == self.currentdir:
+            fav = os.path.join(self.directory, subdir, ".FAV")
+        # If the directory is already favorite
+        if self.is_fav(subdir):
+            # Remove the .FAV file
+            os.remove(fav)
+            return
+        # Create an empty file .FAV
+        open(fav, 'a').close()
+
+    # Print TOGGLE_READ message
+    def read_message(self, subdir):
+        name = self.getname(subdir)
+        message = colored("[#] ", 'green')
+        if not self.is_read(subdir):
+            message = f"{message}{colored('UN', 'red')}"
+        message = f"{message}{colored('MARKED ', 'green')}"
+        message = f"{message} \"{name}\" {colored('AS READ.', 'green')}"
+        print(message)
+
+    # Print TOGGLE_FAV message
+    def fav_message(self, subdir):
+        name = self.getname(subdir)
+        message = colored("[#] ", 'green')
+        if not self.is_fav(subdir):
+            message = f"{message}{colored('UN', 'red')}"
+        message = f"{message}{colored('MARKED ', 'green')}"
+        message = f"{message} \"{name}\" {colored('AS FAVORITE.', 'green')}"
+        print(message)
+
+    def open_dir(self, filename, cont=False, preview=False):
+        path = os.path.join(self.directory, filename)
+        # Preview option is given priority. So if both were
+        # supplied as true, make sure only preview is run
+        if preview:
+            cont = False
+        if cont and self.is_continuing(filename):
+            cont_point = self.get_cont_point(filename)
+            if cont_point is None:
+                self.set_cont_point(0, 0, filename)
+                return
+            # Open the file
+            cont_point = os.path.join(path, cont_point)
+            self.open_pic(cont_point)
+            return
+        files = os.listdir(path)
+        for filename in files:
+            # path of the specific file
+            pic_path = os.path.join(path, filename)
+            # If the file is not a file
+            if not os.path.isfile(pic_path):
+                continue
+            chapter = self.get_chapter(filename)
+            page = self.get_pagenum(filename)
+            if chapter == 1 and page == 1:
+                self.open_pic(pic_path)
+                return
+
+    def print_status(self, filename):
+        tick = "\u2713"
+        cross = "\u00D7"
+        cprint(filename, attrs=['bold', 'underline'])
+        # Default message (when not read)
+        message = f"{colored(cross, 'red')} READ"
+        if self.is_read(filename):
+            message = f"{colored(tick, 'green')} READ"
+        # The READ tag status
+        print(message)
+        # Default message (when not favorite)
+        message = f"{colored(cross, 'red')} FAVORITE"
+        if self.is_fav(filename):
+            message = f"{colored(tick, 'green')} FAVORITE"
+        # The FAV tag status
+        print(message)
+        # Default message (when not continuing)
+        message = f"{colored(cross, 'red')} CONTINUING"
+        if self.is_continuing(filename):
+            message = f"{colored(tick, 'green')} CONTINUING"
+            filename = self.getname(self.currentdir)
+            cont_point = self.get_cont_point(filename)
+            if cont_point is not None:
+                chapter = self.get_chapter(cont_point)
+                page = self.get_pagenum(cont_point)
+                message = f"{message} : Chapter {chapter} Page {page}"
+            else:
+                self.set_cont_point(0, 0, filename)
+                message = f"{colored(cross, 'red')} CONTINUING"
+        # The CONTINUING tag status
+        print(message)
+
+    def parse_arguments(self):
+        # If no arguments were passed
+        if not len(sys.argv) > 1:
+            return
+
+        em_dash = "\u2014"
+
+        # Argument parser
+        parser = argparse.ArgumentParser(prog="track",
+                                         description=f"track {em_dash} track files in the holy directory",
+                                         usage="track [options] [args]")
+        parser.add_argument("-s", "--status", action="store_true",
+                            help="print status of current permitted directory")
+        # Toggle read option
+        parser.add_argument("-r", "--read", action="store_true",
+                            help="toggle the read tag for the current directory")
+        # Toggle fav option
+        parser.add_argument("-f", "--fav", action="store_true",
+                            help="toggle the favorite tag for the current directory")
+        # Continue point setter
+        parser.add_argument("-c", "--cont", metavar="N",
+                            type=int, nargs=2,
+                            help="set new continue point or remove already existing one\
+        (first N is chapter number and second is page number)")
+        # Preview option
+        parser.add_argument("-p", "--preview", action="store_true",
+                            help="preview the first page of the current directory")
+        # Open option
+        parser.add_argument("-o", "--open", metavar="mode",
+                            help="open random directory according to mode specified")
+        # Version option
+        parser.add_argument("--version", action="version",
+                            version=f"%(prog)s {self.version}")
+
+        args = parser.parse_args()
+
+        # -o option
+        suboption = args.open
+        if suboption is not None:
+            # Here, it is safe to create a new list of files since
+            # we know that the -o option was provided. So the program
+            # is going to exit after this.
+            self.files = [f for f in os.listdir(self.directory) if
+                          os.path.isdir(os.path.join(self.directory, f)) and not
+                          f.startswith('.')]
+            read = []
+            unread = []
+            fav = []
+            for filename in self.files:
+                if self.is_read(filename):
+                    read.append(filename)
+                else:
+                    unread.append(filename)
+                if self.is_fav(filename):
+                    fav.append(filename)
+            # Change the list of files according to suboption
+            if suboption == "random":
+                pass
+            elif suboption == "read":
+                self.files = read
+            elif suboption == "unread":
+                self.files = unread
+            elif suboption == "fav" or suboption == "favorite":
+                self.files = fav
+            else:
+                cprint("[!] NOT A VALID MODE.", 'red')
+                print(colored("VALID : ", 'green') +
+                      "random, read, unread, fav")
+                exit(1)
+            length = len(self.files)
+            # In python, random number is generated such that
+            # for randint(a, b), a <= N <= b
+            # Hence the length-1
+            index = randint(0, length - 1)
+            random_file = self.files[index]
+            self.open_dir(random_file)
+            cprint("[#] Opening...", 'green')
+            self.print_status(random_file)
+            exit(0)
+
+        # If the current directory is not in permitted directory
+        if not self.isindir():
+            cprint("[!] CURRENT LOCATION IS NOT IN " +
+                   "PERMITTED DIRECTORY.", 'red')
+            exit(1)
+
+        # -s option
+        if args.status:
+            filename = self.getname(self.currentdir)
+            self.print_status(filename)
+            exit(0)
+
+        # -p option
+        if args.preview:
+            filename = self.getname(self.currentdir)
+            # Only first page in preview.
+            self.open_dir(filename, preview=True)
+            exit(0)
+
+        # -c option
+        # If -c option was provided
+        if args.cont is not None:
+            # Get the chapter number and page number
+            chapter, page = args.cont
+            # We need to give filename and not path
+            filename = self.getname(self.currentdir)
+            cont_point = self.set_cont_point(chapter, page, filename)
+            # The function returns -1 if it removed continue point
+            if cont_point == -1:
+                cprint("[#] REMOVED CONTINUE POINT.", 'green')
+            # It returns None if the page given does not exist
+            if cont_point is None:
+                cprint("[#] CHAPTER ", 'red', end='')
+                print(chapter, end='')
+                cprint(" PAGE ", 'red', end='')
+                print(page, end='')
+                cprint(" DOES NOT EXIST.", 'red')
+                exit(1)
+            if self.is_continuing(self.currentdir):
+                cprint("[#] SET CONTINUE POINT TO : ", 'green', end='')
+                print(cont_point)
+            exit(0)
+
+        # -r option
+        if args.read:
+            self.toggle_read(self.currentdir)
+            self.read_message(self.currentdir)
+            # If the -f option was also provided
+            if args.fav:
+                self.toggle_fav(self.currentdir)
+                self.fav_message(self.currentdir)
+            exit(0)
+
+        # -f option
+        if args.fav:
+            self.toggle_fav(self.currentdir)
+            self.fav_message(self.currentdir)
+            # If the -r option was also provided
+            if args.read:
+                self.toggle_read(self.currentdir)
+                self.read_message(self.currentdir)
+            exit(0)
+
+    def show_error(self):
+        height, width = self.screen.getmaxyx()
+        # Change the color values to red for .07 second
+        for color in range(1, 6):
+            curses.init_pair(color, curses.COLOR_RED, -1)
+        self.drawstatusbar(height, width)
+        self.screen.refresh()
+        time.sleep(.07)
+        self.init_curses()
+
+    # Adjust the cursor so that it is in screen
+    def adjust(self):
+        # Get new dimensions
+        height, width = self.screen.getmaxyx()
+        # The new end value
+        self.end = height + self.start - self.blank
+        # If the cursor is beyond the end of window
+        if self.cursor >= self.end - self.before_end:
+            # Make the start point so that the cursor
+            # is at the minimum position it can be
+            self.start = self.cursor - self.before_start
+
+    # Arrange the subdirectories according to READ and FAV
+    def arrange(self):
+        continuing = []
+        read = []
+        unread = []
+        fav = []
+        for filename in self.files:
+            is_read = self.is_read(filename)
+            is_continuing = self.is_continuing(filename)
+            is_fav = self.is_fav(filename)
+            if is_continuing:
+                continuing.append(filename)
+                continue
+            if is_read:
+                if is_fav:
+                    fav.append(filename)
+                    continue
+                read.append(filename)
+                continue
+            else:
+                unread.append(filename)
+                continue
+        self.files = continuing + unread + read + fav
+
+    # Gives a string that fits in the width
+    def get_string(self, filename, width, cont_detail=False):
+        string = filename
+        end = ""
+        if cont_detail and self.is_continuing(filename):
+            sep = self.separator
+            cont_point = self.get_cont_point(filename)
+            if cont_point is None:
+                self.set_cont_point(0, 0, filename)
+            else:
+                chapter = self.get_chapter(cont_point)
+                page = self.get_pagenum(cont_point)
+                chapter = str(chapter).rjust(4)
+                page = str(page).rjust(4)
+                end = f"{sep} c : {chapter} {sep} p : {page} "
+        # The new width since the end will be added to string
+        width = width - len(end)
+        # Add a leading space to the string for neatness
+        string = f" {string.strip()}"
+        if len(string) >= width:
+            string = f"{string[:width - 4]}..."
+        # The ljust method pads spaces to the end of the string
+        # Left justification
+        string = string.ljust(width)
+        string = f"{string}{end}"
+        return string
+
+    def drawbar(self, y, x, string, color):
+        self.screen.attron(curses.color_pair(color))
+        self.screen.attron(curses.A_REVERSE)
+        self.screen.insstr(y, x, string)
+        self.screen.attroff(curses.A_REVERSE)
+        self.screen.attroff(curses.color_pair(color))
+
+    def drawstring(self, y, x, string, color):
+        # Turn off bold attribute
+        self.screen.attroff(curses.A_BOLD)
+        self.screen.attron(curses.color_pair(color))
+        self.screen.insstr(y, x, f" {string}")
+        self.screen.attroff(curses.color_pair(color))
+        self.screen.attron(curses.A_BOLD)
+
+    # This function validates the characters as given by
+    # the text box in the function below.
+    # For the commands, read the table at the end of :
+    # https://docs.python.org/2/library/curses.html
+    def validator(self, ch):
+        if ch == curses.KEY_END:
+            # 5 = ^E (ctrl-E)
+            # This is bound key combination for moving
+            # to end of line in the text box
+            return 5
+        if ch == curses.KEY_HOME:
+            # 1 = ^A
+            return 1
+        # Escape key
+        if ch == 27:
+            self.search_term = ""
+            return 10
+        return ch
+
+    def make_text_box(self, height, width, character):
+        curses.curs_set(True)
+        self.screen.attroff(curses.A_REVERSE)
+        self.screen.attroff(curses.A_BOLD)
+        # create a new window at the bottom of height
+        # 1. This method newin is :
+        # curses.newwin(height, width, y, x)
+        newwin = curses.newwin(1, width, height - 1, 1)
+        newwin.keypad(True)
+        newwin.idlok(True)
+        # Add the given character to the original screen
+        # to indicate what to input and so that it cannot
+        # be deleted by the user
+        self.screen.addstr(height - 1, 0, character)
+        self.screen.refresh()
+        # Make the new window a textbox
+        textbox = curses.textpad.Textbox(newwin)
+        # Give the user a chance to edit it and get
+        # whatever string they inputted
+        user_input = textbox.edit(self.validator)
+        # Remove the cursor
+        curses.curs_set(False)
+        # Remove the unnecessary spaces
+        user_input = user_input.strip()
+        # Delete the new window so that the status bar
+        # can be drawn again
+        del newwin
+        return user_input
+
+    def search(self, height, width, user_input=None):
+        if user_input is None:
+            user_input = self.make_text_box(height, width, "/")
+        # If the new user input was not blank, change
+        # the actual search term
+        if not user_input == "":
+            self.search_term = user_input.lower()
+        # If the search term is blank, don't search
+        if self.search_term == "":
+            return
+        length = len(self.files)
+        # Start search after the current cursor position
+        for i in range(self.cursor + 1, length):
+            # If the search term is in the filename
+            # ignoring case
+            filename = self.files[i].lower()
+            if self.search_term in filename:
+                self.cursor = i
+                self.adjust()
+                break
+
+    def get_detail(self, path):
+        pics = 0
+        subdirs = 0
+        chaps = 1
+        files = os.listdir(path)
+        for filename in files:
+            # If the file is not a file
+            if not os.path.isfile(os.path.join(path, filename)):
+                subdirs += 1
+                continue
+            # If the file is hidden
+            if filename.startswith('.'):
+                continue
+            pics += 1
+            chapter = self.get_chapter(filename)
+            if chapter > chaps:
+                chaps = chapter
+        return chaps, pics, subdirs
+
+    def drawstatusbar(self, height, width):
+        sep = self.separator
+        endstring = ""
+        filename = self.files[self.cursor]
+        # We want the status of the file to be of the format
+        # +-------+
+        # | - r f |<--- If read and favorite
+        # |-------|
+        # | u - f |<--- If unread and favorite
+        # |-------|
+        # | - r - |<--- If only read
+        # +-------+
+        unread = "-"
+        read = "-"
+        fav = "-"
+        if self.is_read(filename):
+            read = "r"
+        else:
+            unread = "u"
+        if self.is_fav(filename):
+            fav = "f"
+        endstring += f"{sep} {unread} {read} {fav}"
+        status = "UNREAD"
+        if self.is_fav(filename):
+            status = "FAVORITE"
+        elif self.is_read(filename):
+            status = "READ"
+        if self.is_continuing(filename):
+            status = "CONTINUING"
+        status = status.ljust(10)
+        status = f"{status} {sep}"
+        path = os.path.join(self.directory, filename)
+        number_of_chaps, number_of_files, number_of_subdirs = self.get_detail(path)
+        # String form of the number of files
+        number = str(number_of_files)
+        # String form of the number of chapters
+        chaps = str(number_of_chaps)
+        # Right justification
+        if number_of_subdirs > 0:
+            number = number.rjust(5)
+        else:
+            number = number.rjust(5)
+        chaps = chaps.rjust(3)
+        if number_of_subdirs > 0:
+            endstring += f" {sep} Pictures* : {number}"
+        else:
+            endstring += f" {sep} Pictures  : {number}"
+        endstring += f" {sep} Chapter  : {chaps} "
+        status = self.get_string(status, width - len(endstring))
+        status = f"{status}{endstring}"
+        try:
+            self.drawbar(height - 1, 0, status, 5)
+        except curses.error:
+            pass
+        finally:
+            self.screen.attroff(curses.A_REVERSE)
+
+    def scrolldown(self, height, length):
+        # Move the cursor down by one row
+        self.cursor = self.cursor + 1
+        # (start + height - 1) is the number of directories
+        # already printed, since the last row is the status
+        # bar, so if that is greater than or equal to length,
+        # we dont need to scroll the screen down otherwise
+        # the last directory (item) will keep moving up
+        if height + self.start - self.blank >= length or \
+                length < height:
+            pass
+        # If the cursor becomes greater than or equal to the
+        # ending position, which is (end - before_end) [read
+        # description of before_end for more information],
+        # the screen is scrolled down along with the cursor
+        elif self.cursor >= self.end - self.before_end:
+            self.start = self.start + 1
+
+    def scrollup(self):
+        # Move the self.cursor up by one row
+        self.cursor = self.cursor - 1
+        # If the cursor becomes less than the starting position,
+        # which is (start + before_start) [read description of
+        # before_start for more information], the screen is
+        # scrolled up along with the cursor
+        if self.cursor < self.start + self.before_start:
+            self.start = self.start - 1
+        # If the cursor becomes less than zero, make it zero again
+        # so that it does not go above the first subdirectory (item)
+        if self.start < 0:
+            self.start = 0
+
+    def getcolor(self, filename):
+        if self.is_continuing(filename):
+            return 1
+        if self.is_fav(filename):
+            return 4
+        if not self.is_read(filename):
+            return 3
+        if self.is_read(filename):
+            return 2
+        return 5
+
+    def drawdirs(self, cursor, width, length):
+        # The minimum of the end point and number of files
+        self.end = min(self.end, length)
+        y = self.starting_row
+        for i in range(self.start, self.end):
+            filename = self.files[i]
+            if i == cursor:
+                string = self.get_string(filename, width, True)
+                color = self.getcolor(filename)
+                self.drawbar(y, 0, string, color)
+                y = y + 1
+                continue
+            string = self.get_string(filename, width)
+            color = self.getcolor(filename)
+            self.drawstring(y, 0, string, color)
+            y = y + 1
+
+    @staticmethod
+    def make_box(window, string, number, width, y):
+        ljoiner = "\u2560"
+        rjoiner = "\u2563"
+        horizontal = "\u2550"
+        underline = horizontal * (width - 2)
+        underline = f"{ljoiner}{underline}{rjoiner}"
+        window.addstr(y - 1, 0, underline)
+        number = f" : {str(number).rjust(4)}"
+        string = f"{string.ljust(width - 10)}{number}"
+        window.addstr(y, 1, string)
+
+    def show_info(self):
+        num_read = 0
+        num_fav = 0
+        num_unread = 0
+        num_continuing = 0
+        # This is to calculate number of files in
+        # each tag
+        for filename in self.files:
+            if self.is_read(filename):
+                num_read += 1
+            else:
+                num_unread += 1
+            if self.is_fav(filename):
+                num_fav += 1
+            if self.is_continuing(filename):
+                num_continuing += 1
+        # BOX DRAWING CHARACTERS
+        tlcorner = "\u2554"
+        trcorner = "\u2557"
+        blcorner = "\u255A"
+        brcorner = "\u255D"
+        horizontal = "\u2550"
+        vertical = "\u2551"
+        screen_height, screen_width = self.screen.getmaxyx()
+        height = 18
+        width = 70
+        y = screen_height // 2 - height // 2
+        x = screen_width // 2 - width // 2
+        info = self.screen.subwin(height, width, y, x)
+        top = horizontal * (width - 2)
+        top = f"{tlcorner}{top}{trcorner}"
+        # Top side of box
+        info.addstr(0, 0, top)
+        filename = self.files[self.cursor]
+        path = os.path.join(self.directory, filename)
+        # Vertical sides of box
+        for y in range(1, height - 1):
+            space = " " * (width - 2)
+            space = f"{vertical}{space}{vertical}"
+            info.addstr(y, 0, space)
+        info.attron(curses.A_BOLD)
+        heading = filename
+        if len(filename) > width - 4:
+            heading = f"{filename[:width - 7]}..."
+        heading = heading.center(width - 4)
+        # Heading (Name of subdirectory)
+        info.addstr(1, 2, heading)
+        info.attroff(curses.A_BOLD)
+        # The heading of the window
+        info.addstr(0, 3, " Info ")
+        # Path of the current directory
+        d_path = path.replace("/home/adnan", "~")
+        if len(d_path) > width - 4:
+            d_path = f"{d_path[:width - 7]}..."
+        info.addstr(2, 1, d_path.center(width - 2))
+        chaps, pages, subdirs = self.get_detail(path)
+        # CHAPTERS
+        self.make_box(info, " CHAPTERS", chaps, width,
+                      height - 14)
+        # PICTURES
+        if subdirs > 0:
+            self.make_box(info, " PICTURES*", pages, width,
+                          height - 12)
+        else:
+            self.make_box(info, " PICTURES", pages, width,
+                          height - 12)
+        # READ
+        self.make_box(info, " READ", num_read, width,
+                      height - 10)
+        # UNREAD
+        self.make_box(info, " UNREAD", num_unread, width,
+                      height - 8)
+        # FAVORITE
+        self.make_box(info, " FAVORITE", num_fav, width,
+                      height - 6)
+        # CONTINUING
+        self.make_box(info, " CONTINUING", num_continuing, width,
+                      height - 4)
+        # TOTAL
+        self.make_box(info, " TOTAL", len(self.files), width,
+                      height - 2)
+        bottom = horizontal * (width - 2)
+        bottom = f"{blcorner}{bottom}{brcorner}"
+        # Bottom side of box
+        info.addstr(height - 1, 0, bottom)
+
+    # ===================== KEYBINDINGS =====================
+
+    def handle_key(self, ch, height, width, length):
+        # Info window toggle
+        if ch == ord('i'):
+            self.showing_info = not self.showing_info
+        # If the terminal is resized
+        elif ch == curses.KEY_RESIZE:
+            self.adjust()
+        # If the info window is visible, default keybindings
+        # should not work
+        elif self.showing_info:
+            return
+        # Search function
+        elif ch == ord('/'):
+            self.search(height, width)
+            return
+        # Continue function
+        elif ch == ord('c'):
+            chapter = self.make_text_box(height, width, "c")
+            page = self.make_text_box(height, width, "p")
+            if chapter == "" or page == "":
+                return
+            try:
+                chapter = int(chapter.strip())
+                page = int(page.strip())
+            except ValueError:
+                self.show_error()
+            result = self.set_cont_point(chapter, page,
+                                         self.files[self.cursor])
+            if result is None:
+                self.show_error()
+        # One row down
+        elif ch == ord('j') or ch == curses.KEY_DOWN:
+            self.scrolldown(height, length)
+        # One row up
+        elif ch == ord('k') or ch == curses.KEY_UP:
+            self.scrollup()
+        # Open the first page of file or continue point
+        elif ch == ord('l') or ch == curses.KEY_RIGHT:
+            filename = self.files[self.cursor]
+            # First page or continue point. So pass
+            # True as value for cont
+            self.open_dir(filename, True)
+        # Open only the first page and not the continue point
+        elif ch == ord('p') or ch == ord(' '):
+            filename = self.files[self.cursor]
+            self.open_dir(filename, preview=True)
+        # Half page down
+        # 4 = ^D (ctrl-D)
+        elif ch == 4 or ch == ord('J'):
+            for i in range(height // 2):
+                self.scrolldown(height, length)
+        # Half page up
+        # 21 = ^U (ctrl-U)
+        elif ch == 21 or ch == ord('K'):
+            for i in range(height // 2):
+                self.scrollup()
+        # To the first row
+        elif ch == curses.KEY_HOME or ch == ord('g'):
+            while self.cursor > 0:
+                self.scrollup()
+        # To the last row
+        elif ch == curses.KEY_END or ch == ord('G'):
+            while self.cursor < length:
+                self.scrolldown(height, length)
+        # Toggle read tag if 'r' is pressed
+        elif ch == ord('r'):
+            self.toggle_read(self.files[self.cursor])
+        # Toggle favorite tag if 'f' is pressed
+        elif ch == ord('f'):
+            self.toggle_fav(self.files[self.cursor])
+        # Go to the next search
+        elif ch == ord('n'):
+            self.search(height, width, self.search_term)
+        # Go to previous item with search term
+        elif ch == ord('N'):
+            if self.search_term == "":
+                return
+            last = self.cursor
+            for i in range(0, self.cursor):
+                filename = self.files[i].lower()
+                if self.search_term in filename:
+                    last = i
+            self.cursor = last
+            self.start = self.cursor - self.before_start
+
+    # =======================================================
+
+    def reinitialize(self):
+        # Reinitialize the files
+        self.files = [f for f in os.listdir(self.directory)
+                      if os.path.isdir(os.path.join(self.directory, f)) and not
+                      f.startswith('.')]
+        self.files = sorted(self.files)
+        self.arrange()
+        self.adjust()
+        self.screen.refresh()
+
+    def main(self, screen):
+        # Minimum width and height the terminal needs
+        # to be so that the program runs fine.
+        min_width = 72
+        min_height = 20
+
+        # ch is zero by default but is actually the character
+        # pressed by the user in the final loop
+        ch = 0
+
+        # Initialize curses
+        self.init_curses()
+
+        # Initialize the screen object
+        self.screen = screen
+
+        # Arrange the files
+        self.arrange()
+
+        # Number of files
+        length = len(self.files)
+
+        while ch != ord('q'):
+            # This line is very important. Without this, the
+            # terminal resize won't be handled properly
+            self.screen.erase()
+
+            # Hide the cursor
+            curses.curs_set(False)
+
+            # Almost all the text printed is in bold
+            self.screen.attron(curses.A_BOLD)
+            self.screen.attroff(curses.A_REVERSE)
+
+            # Get the max height and width of the terminal screen
+            height, width = screen.getmaxyx()
+
+            if height < min_height or width < min_width:
+                error = "Terminal too small\nResize to 72x20 or larger"
+                height, width = self.screen.getmaxyx()
+                while height < min_height or width < min_width:
+                    self.screen.erase()
+                    if ch == ord('q'):
+                        return
+                    try:
+                        self.screen.addstr(0, 0, error)
+                    except curses.error:
+                        pass
+                    finally:
+                        ch = self.screen.getch()
+                        height, width = self.screen.getmaxyx()
+
+            # The ending point is (height+start-1), that is,
+            # the number of directories printed already.
+            # 1 is subtracted because the last row is for the
+            # status bar
+            self.end = height + self.start - self.blank
+
+            # If end point is greater than length and the number
+            # of self.files is greater than the height
+            if self.end >= length >= height:
+                # Set end to length
+                # This is because the drawdirs loop ends one
+                # before the actual end point.
+                # See : range(start, end)
+                self.end = length
+                # Then adjust the start point
+                # 1 is added so that start point shifts down
+                # (and the printed text moves up)
+                # and leaves space for the status bar
+                self.start = self.end - height + self.blank
+
+            try:
+                # First, draw the directories
+                self.drawdirs(self.cursor, width, length)
+                # Then, draw the status bar
+                self.drawstatusbar(height, width)
+                # Draw the info window
+                if self.showing_info:
+                    self.show_info()
+            except curses.error:
+                pass
+            except FileNotFoundError:
+                self.reinitialize()
+                continue
+
+            ch = self.screen.getch()
+
+            try:
+                self.handle_key(ch, height, width, length)
+            except FileNotFoundError:
+                self.reinitialize()
+                continue
+
+            # If the info window is visible and 'q' was pressed
+            # we don't want to exit the whole program but just
+            # the info window
+            # 27 = ESC
+            if (ch == ord('q') or ch == 27) and self.showing_info:
+                self.showing_info = False
+                ch = 0
+
+            if self.cursor < 0:
+                self.cursor = 0
+            if self.cursor >= length:
+                self.cursor = length - 1
+            # Fix start if less than zero
+            if self.start < 0:
+                self.start = 0
+
+            self.screen.refresh()
+
+        # Out of the loop ('q' was pressed)
+        curses.endwin()
+
+
+def main():
+    try:
+        # The object of the Track class
+        obj = Track()
+        os.environ.setdefault('ESCDELAY', '1')
+        # Give the main function for the curses wrapper
+        curses.wrapper(obj.main)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Put this also in a try catch block so that
+        # if the curses.initscr() method was not called,
+        # it does not raise an exception
+        try:
+            curses.endwin()
+        except curses.error:
+            pass
+
+
+if __name__ == "__main__":
+    main()

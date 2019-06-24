@@ -1,0 +1,184 @@
+.\" Disable justification, align text to left only
+.ad l
+.\" ------------------------------------------------------
+.TH "TRACK" "1" "June 24th 2019" "v0.1.1" "TRACK"
+.\" ------------------------------------------------------
+
+.SH NAME
+track \(em a simple tool to keep track of your mangas and doujins.
+
+.SH SYNOPSIS
+\fBtrack\fR [\fIOPTIONS\fR] [\fIARGS\fR]
+
+.SH DESCRIPTION
+\fBtrack\fR is a program that enables the user to keep track of mangas and doujins. Most options require the current directory to be a \fBpermitted\fR directory, which is any subdirectory of \fI$HOLY_DIR\fR. Without any option provided, this is a \fBcurses\fR application and displays the files in the holy directory with a cursor to move around and some useful keybindings.
+
+The directory \fI$HOLY_DIR\fR is also referred to as the \fBholy directory\fR in this manual.
+
+There are different \fBtags\fR for the subdirectories. These are :
+
+.TS
+allbox;
+lb l 
+lb l.
+READ	On if the subdirectory has been marked as read.
+FAVOURITE	On if the subdirectory has been marked as favourite.
+CONTINUE	On if the subdirectory has a continue point set.
+.TE
+
+
+These tags are maintained by creating blank files .READ, .FAV in the subdirectory. The information for continue point is stored in a file .CONT.
+
+.SH OPTIONS
+.TP
+\fB\-h, \-\-help\fR
+Show a short help message and exit.
+.TP
+\fB\-r, \-\-read\fR
+Toggle the \fBREAD\fR tag for the current directory, only if the current directory is a permitted subdirectory.
+.TP
+\fB\-f, \-\-fav\fR
+Toggle the \fBFAVOURITE\fR tag for the current directory, only if the current directory is a permitted subdirectory.
+.TP
+\fB\-o \fIMODE\fB, \-\-open \fIMODE\fR
+Open the first page of first chapter of a random subdirectory in the default image viewer according to \fIMODE\fR specified.
+
+The \fIMODES\fR are :
+
+.TS
+allbox;
+lb l
+lb l
+lb l
+lb l.
+unread	Open first page of random \fBUNREAD\fR subdirectory.
+read	Open first page of random \fBREAD\fR subdirectory.
+fav	Open first page of random \fBFAVOURITE\fR subdirectory.
+random	Open first page of \fBANY\fR random subdirectory.
+.TE
+
+.TP
+\fB\-c \fICHAPTER\fB \fIPAGE\fB, \-\-cont \fICHAPTER\fB \fIPAGE\fB
+Set a new continue point for the current permitted subdirectory or remove an already existing continue point.
+
+To set a new continue point, run the program as :
+
+$ track -c \fICHAPTER\fR \fIPAGE\fR
+
+This will set the continue point to chapter \fICHAPTER\fR, page \fIPAGE\fR. If both \fICHAPTER\fR and \fIPAGE\fR are <= 0, the already existing continue point is removed. If the chapter is <= 0 but the page is not, the chapter is assumed to be 1.
+
+.TP
+\fB\-p, \-\-preview\fR
+Open the first page of the first chapter of the current permitted subdirectory.
+.TP
+\fB\-s, \-\-status\fR
+Print the status of all the three tags for the current permitted subdirectory. If the tag is on, a GREEN \fBtick\fR mark is printed before the tag. If it is off, a RED \fBcross\fR mark is printed before it.
+.TP
+\fB\--version\fR
+Print version information of program and exit.
+
+.SH ENVIRONMENT VARIABLE
+\fI$HOLY_DIR\fR needs to be set to the path of the directory where you store your doujins in order for the program to work.
+.br
+If it is not set, the directory is assumed to be \fI$HOME/Doujinshi\fR
+
+.SH FILE ORGANIZATION
+The Doujinshi files need to be organized in a specific manner:
+.br
+\[bu] Each doujinshi should have its own separate subdirectory under \fI$HOLY_DIR\fR
+.br
+\[bu] The images inside the subdirectories should be named as "ch\-{chapter} {page}.{ext}"
+.br
+\[bu] For subdirectories with a single chapter, you may name the images as simply "{page}.{ext}"
+
+.SH TERMINAL USER INTERFACE
+If no options are provided, \fBtrack\fR is a \fBcurses\fR application that displays the files in the holy directory with a cursor to move around and some useful keybindings. The subdirectories are displayed in different colors according to their tags. The colors are :
+
+.TS
+allbox;
+lb l
+lb l.
+CONTINUING	YELLOW
+UNREAD	GREEN
+READ	BLUE
+FAVOURITE	MAGENTA
+.TE
+
+
+.RS -4
+\fBSTATUS BAR\fR
+.RE
+There is also a status bar at the bottom of the screen with information about the subdirectory under the cursor. At the left, there is the name of the main section in which the cursor is. Any one of the following :
+
+\[bu]
+.BR UNREAD
+.br
+\[bu]
+.BR READ
+.br
+\[bu]
+.BR FAVOURITE
+.br
+\[bu]
+.BR CONTINUING
+
+Then there is information in form of [ - r f ] or [ u - f ]. In this, u indicates unread, r indicates read and f indicates favourite tag status for the subdirectory under cursor. If the tag is off, '-' (dash) is displayed.
+
+Then total number of pictures in the subdirectory under cursor is displayed. An asterisk (*) at the end of pictures indicates that there are nested subdirectories. Finally, the number of chapters for that subdirectory is displayed.
+
+If the subdirectory under cursor has a continue point set, the chapter and page of the continue point is displayed as [c : \fICHAPTER\fR and p : \fIPAGE\fR] at the end of the cursor.
+
+.RS -4
+\fBKEYBINDINGS\fR
+.RE
+.TP 10
+j, UP
+Move one row down
+.TP 10
+k, DOWN
+Move one row up
+.TP 10
+^D, J
+Move half page down
+.TP 10
+^U, K
+Move half page up
+.TP 10
+g, HOME
+Move to first file
+.TP 10
+G, END
+Move to last file
+.TP 10
+r
+Toggle \fBREAD\fR tag for subdirectory under cursor
+.TP 10
+f
+Toggle \fBFAVOURITE\fR tag for subdirectory under cursor
+.TP 10
+c
+Set continue point for subdirectory under cursor. First, a textbox with title "c" will appear in which you need to input chapter number for the continue point. Then, textbox with title "p" will appear in which you need to input page number for the continue point. If the continue point given exists (the subdirectory has that page in that particular chapter), it is marked. Otherwise, a red flash goes off to inform user of error. Give 0 or less for both values to remove an already existing continue point. If chapter is <= 0 but the page is not, the chapter is assumed to be 1
+.TP 10
+l, RIGHT
+Open first page or continue point (if set) for the subdirectory under cursor in default image viewer
+.TP 10
+p, SPACE
+Open the first page of subdirectory under cursor (regardless of continue point) in the default image viewer
+.TP 10
+/
+Search for term in names of directories after cursor till end of files (no loopback)
+.TP 10
+n
+Go to next file that contains the last search term (no loopback)
+.TP 10
+i
+Show the number of subdirectories in each tag and basic information about subdirectory under cursor
+.TP 10
+q
+Hide info window if visible otherwise, exit
+.TP 10
+ESC
+Close info window or text-box if visible
+
+.SH AUTHOR
+This manual page and the program were written by naiymu.
