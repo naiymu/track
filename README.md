@@ -1,8 +1,8 @@
 # track
 
-<center>
-![Preview](assets/preview.png)
-</center>
+<p align="center">
+<img src="assets/preview.png">
+</p>
 
 ## TABLE OF CONTENTS
 
@@ -222,9 +222,9 @@ Go to previous file that contains the last search term (no loopover)
 Show the number of subdirectories in each tag and basic information
 about subdirectory under cursor
 
-<center>
-![Info_window](assets/info_win.png)
-</center>
+<p align="center">
+<img src="assets/info_win.png">
+</p>
 
 `q`
 
