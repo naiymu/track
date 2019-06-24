@@ -10,8 +10,7 @@
 - [SYNOPSIS](#SYNOPSIS)
 - [DESCRIPTION](#DESCRIPTION)
 - [OPTIONS](#OPTIONS)
-- [ENVIRONMENT VARIABLE](#ENVIRON)
-- [FILE ORGANIZATION](#FILE_ORG)
+- [PATH TO DIRECTORY](#PATH)
 - [TERMINAL USER INTERFACE](#TUI)
 - [VERSION](#VERSION)
 - [REQUIREMENTS](#REQUIREMENTS)
@@ -101,11 +100,17 @@ the tag. If it is off, a RED **cross** mark is printed before it.
 
 Print version information of program and exit.
 
-## ENVIRONMENT VARIABLE<a name="ENVIRON"></a>
-*$HOLY_DIR* needs to be set to the path of the directory where you store your doujins in order for the program to work.
+## PATH TO DIRECTORY<a name="PATH"></a>
+The path to directory is taken from multiple sources. The preference order is:
+- Configuration file
+- Environment variable
+- Default: $HOME/Doujinshi
+
+#### ENVIRONMENT VARIABLE
+*$HOLY_DIR* can be set to the path of the directory where you store your doujins.
 If it is not set, the directory is assumed to be *$HOME/Doujinshi*
 
-## FILE ORGANIZATION<a name="FILE_ORG"></a>
+#### FILE ORGANIZATION
 The Doujinshi files need to be organized in a specific manner:
 - Each doujinshi should have its own separate subdirectory under *$HOLY_DIR*
 - The images inside the subdirectories should be named as "ch\-{chapter} {page}.{ext}" if there are multiple chapters

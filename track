@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+import yaml
 from random import randint
 
 from termcolor import colored
@@ -31,8 +32,20 @@ class Track(object):
     # The number of lines at which the cursor stops if there are
     # more directories to scroll up to
     before_start = 8
+    # The home dir
+    home = os.path.expanduser("~")
     # The holy directory
-    directory = os.getenv("HOLY_DIR", os.path.join(os.path.expanduser("~"), "Doujinshi"))
+    directory = os.getenv("HOLY_DIR", os.path.join(home, "Doujinshi"))
+    # Config file
+    config = os.path.join(home, ".trackrc")
+    cnfgdir = None
+    if os.path.isfile(config):
+        with open(config) as yamlfile:
+            values = yaml.safe_load(yamlfile)
+            if values is not None:
+                cnfgdir = values.get('dir')
+    if cnfgdir is not None:
+        directory = os.path.expanduser(cnfgdir)
     # Remove the os separator from end of string
     directory = directory.rstrip(os.sep)
     # The current directory
@@ -63,7 +76,7 @@ class Track(object):
     def __init__(self):
         if not os.path.isdir(self.directory):
             cprint(f'DIRECTORY "{self.directory}" DOES NOT EXIST.', 'red')
-            cprint(f"CONSIDER SETTING OR RECHECKING THE ENVIRONMENT VARIABLE \"$HOLY_DIR.\"", 'red')
+            cprint(f"CONSIDER RECHECKING THE ENVIRONMENT VARIABLE OR THE CONFIGURATION FILE.", 'red')
             exit(1)
         # Parse arguments first
         self.parse_arguments()

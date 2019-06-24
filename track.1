@@ -77,10 +77,30 @@ Print the status of all the three tags for the current permitted subdirectory. I
 \fB\--version\fR
 Print version information of program and exit.
 
-.SH ENVIRONMENT VARIABLE
-\fI$HOLY_DIR\fR needs to be set to the path of the directory where you store your doujins in order for the program to work.
+.SH PATH TO DIRECTORY
+The path to directory is taken from multiple sources. The preference order is:
 .br
-If it is not set, the directory is assumed to be \fI$HOME/Doujinshi\fR
+\[bu] Configuration file
+.br
+\[bu] Environment variable
+.br
+\[bu] Default: $HOME/Doujinshi
+
+.RS -4
+\fBENVIRONMENT VARIABLE\fR
+.RE
+\fI$HOLY_DIR\fR can be set to the path of the directory where you store your doujins.
+.br
+If it is not set, the directory is assumed to be \fI$HOME/Doujinshi\fR or read from the config file.
+
+.RS -4
+\fBCONFIGURATION FILE\fR
+.RE
+A configuration file ".trackrc" can be placed in the home directory if you don't want to specify an environment variable. The file will be in yaml format.
+
+The directory is set as:
+.br
+dir: \fIPATH-TO-DIR\fR
 
 .SH FILE ORGANIZATION
 The Doujinshi files need to be organized in a specific manner:
