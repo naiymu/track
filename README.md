@@ -164,11 +164,11 @@ and page of the continue point is displayed as [c : *CHAPTER* and p :
 
 #### KEYBINDINGS
 
-`j, UP`
+`j, DOWN`
 
 Move one row down
 
-`k, DOWN`
+`k, UP`
 
 Move one row up
 
