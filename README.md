@@ -11,6 +11,7 @@
 - [DESCRIPTION](#DESCRIPTION)
 - [OPTIONS](#OPTIONS)
 - [PATH TO DIRECTORY](#PATH)
+- [FILE ORGANIZATION](#FILE)
 - [TERMINAL USER INTERFACE](#TUI)
 - [VERSION](#VERSION)
 - [REQUIREMENTS](#REQUIREMENTS)
@@ -108,9 +109,17 @@ The path to directory is taken from multiple sources. The preference order is:
 
 #### ENVIRONMENT VARIABLE
 *$HOLY_DIR* can be set to the path of the directory where you store your doujins.
-If it is not set, the directory is assumed to be *$HOME/Doujinshi*
+If it is not set, the directory is assumed to be *$HOME/Doujinshi* or read from the config file.
 
-#### FILE ORGANIZATION
+
+#### CONFIGURATION FILE
+A configuration file ".trackrc" can be placed in the home directory if you don't want to
+specify an environment variable. The file will be in yaml format.
+
+The directory is set as:
+`dir : [PATH-TO-DIRECTORY]`
+
+## FILE ORGANIZATION<a name="FILE"></a>
 The Doujinshi files need to be organized in a specific manner:
 - Each doujinshi should have its own separate subdirectory under *$HOLY_DIR*
 - The images inside the subdirectories should be named as "ch\-{chapter} {page}.{ext}" if there are multiple chapters
