@@ -122,7 +122,7 @@ The directory is set as:
 ## FILE ORGANIZATION<a name="FILE"></a>
 The Doujinshi files need to be organized in a specific manner:
 - Each doujinshi should have its own separate subdirectory under *$HOLY_DIR*
-- The images inside the subdirectories should be named as "ch\-{chapter} {page}.{ext}" if there are multiple chapters
+- The images inside the subdirectories should be named as "ch\-{chapter} {page}.{ext}"
 - For subdirectories with a single chapter, you may name the images as simply "{page}.{ext}"
 
 ## TERMINAL USER INTERFACE<a name="TUI"></a>
